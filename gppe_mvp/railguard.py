@@ -292,6 +292,8 @@ class RailGuardEngine:
         self.recent_incident_points: list[tuple[int, float, float, int]] = []
         self.last_train_seen_ms = -10_000_000
         self.last_train_confidence = 0.0
+        self.last_train_zone: Zone | None = None
+        self.zone_memory_active = False
         self.train_history: list[tuple[int, bool, float]] = []
         self.active_zones = list(self.zones)
         self.latest_context = SceneContext([], {}, False, 0.0, {}, list(self.zones))
@@ -305,6 +307,8 @@ class RailGuardEngine:
         self.recent_incident_points = []
         self.last_train_seen_ms = -10_000_000
         self.last_train_confidence = 0.0
+        self.last_train_zone = None
+        self.zone_memory_active = False
         self.train_history = []
         self.active_zones = list(self.zones)
         self.latest_context = SceneContext([], {}, False, 0.0, {}, list(self.zones))
@@ -315,7 +319,7 @@ class RailGuardEngine:
         counts: dict[str, int] = {}
         visible_classes = []
         zone_membership: dict[int, dict[str, bool]] = {}
-        active_zones = self._zones_for_frame(packet.image, tracks)
+        active_zones = self._zones_for_frame(packet.image, tracks, packet.timestamp_ms)
         self.active_zones = active_zones
         raw_train_confidence = 0.0
         for track in tracks:
@@ -419,9 +423,20 @@ class RailGuardEngine:
             item for item in self.recent_incident_points if timestamp_ms - item[0] <= INCIDENT_COOLDOWN_MS
         ]
 
-    def _zones_for_frame(self, frame: np.ndarray, tracks: list[Track]) -> list[Zone]:
+    def _zones_for_frame(self, frame: np.ndarray, tracks: list[Track], timestamp_ms: int) -> list[Zone]:
         train_tracks = [t for t in tracks if t.visible and t.label == "train"]
         if not train_tracks:
+            if self.last_train_zone and timestamp_ms - self.last_train_seen_ms <= TRAIN_CONTEXT_MEMORY_MS:
+                self.zone_memory_active = True
+                return [
+                    Zone(
+                        zone_id=self.last_train_zone.zone_id,
+                        name="Train-adjacent restricted zone (memory)",
+                        zone_type=self.last_train_zone.zone_type,
+                        polygon_norm=self.last_train_zone.polygon_norm,
+                    )
+                ]
+            self.zone_memory_active = False
             return list(self.zones)
         h, w = frame.shape[:2]
         x1 = min(t.box[0] for t in train_tracks)
@@ -434,13 +449,16 @@ class RailGuardEngine:
         zx2 = min(w, x2 + pad_x) / max(1, w)
         zy1 = max(0, y1 - int((y2 - y1) * 0.08)) / max(1, h)
         zy2 = min(h, y2 + pad_y) / max(1, h)
+        zone = Zone(
+            zone_id="platform_edge",
+            name="Train-adjacent restricted zone",
+            zone_type="train_adjacent_platform_edge",
+            polygon_norm=[(zx1, zy1), (zx2, zy1), (zx2, zy2), (zx1, zy2)],
+        )
+        self.last_train_zone = zone
+        self.zone_memory_active = False
         return [
-            Zone(
-                zone_id="platform_edge",
-                name="Train-adjacent restricted zone",
-                zone_type="train_adjacent_platform_edge",
-                polygon_norm=[(zx1, zy1), (zx2, zy1), (zx2, zy2), (zx1, zy2)],
-            )
+            zone
         ]
 
     def _create_intrusion(self, packet: FramePacket, track: Track, context: SceneContext) -> IncidentEvent:
@@ -592,6 +610,8 @@ class RailGuardEngine:
             "train_context": "DETECTED" if context.train_visible else "NOT DETECTED",
             "train_confidence": round(float(context.train_confidence), 2),
             "train_source": "Visual perception" if context.train_visible and context.train_confidence > 0 else "Not detected",
+            "train_memory_active": bool(self.zone_memory_active or (context.train_visible and context.counts.get("train", 0) == 0)),
+            "zone_source": "Memory-held train zone" if self.zone_memory_active else "Visual train zone" if context.counts.get("train", 0) > 0 else "Fallback platform zone",
             "zone_state": "BREACHED" if zone_breached else "SECURE",
             "risk": risk,
             "latest_incident": latest_incident_summary(latest_incident),
@@ -751,7 +771,8 @@ def draw_railguard_overlay(
         cv2.addWeighted(overlay, 0.16, out, 0.84, 0, out)
         cv2.polylines(out, [pts], True, color, 3)
         x, y = pts[0]
-        cv2.putText(out, "RESTRICTED ZONE", (x + 8, y + 28), cv2.FONT_HERSHEY_SIMPLEX, 0.68, color, 2, cv2.LINE_AA)
+        label = "RESTRICTED ZONE - MEMORY" if "memory" in zone.name.lower() else "RESTRICTED ZONE"
+        cv2.putText(out, label, (x + 8, y + 28), cv2.FONT_HERSHEY_SIMPLEX, 0.68, color, 2, cv2.LINE_AA)
     for track in tracks:
         if not track.visible or track.label not in {"person", "train"}:
             continue

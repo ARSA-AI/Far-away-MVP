@@ -241,11 +241,13 @@
         document.getElementById('intel-runtime').textContent = status.runtime || 'CPU MODE';
         document.getElementById('intel-fps').textContent = `${status.fps ?? dataSafeFps()} FPS`;
         document.getElementById('intel-people').textContent = `${status.people_tracked || 0} TRACKED`;
+        const trainSource = status.train_memory_active ? 'MEMORY' : 'VISUAL';
         const trainText = status.train_context === 'DETECTED'
-          ? `DETECTED · VISUAL · ${Number(status.train_confidence || 0).toFixed(2)}`
+          ? `DETECTED · ${trainSource} · ${Number(status.train_confidence || 0).toFixed(2)}`
           : 'NOT DETECTED';
         document.getElementById('intel-train').textContent = trainText;
-        document.getElementById('intel-zone').textContent = status.zone_state || 'SECURE';
+        const zoneSource = status.zone_source ? ` · ${status.zone_source.replace(' train zone', '').replace(' platform zone', '')}` : '';
+        document.getElementById('intel-zone').textContent = `${status.zone_state || 'SECURE'}${zoneSource}`;
         const risk = document.getElementById('intel-risk');
         risk.textContent = status.risk || 'CLEAR';
         risk.dataset.risk = String(status.risk || 'CLEAR').toLowerCase();
