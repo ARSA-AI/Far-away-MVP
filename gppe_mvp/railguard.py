@@ -21,6 +21,7 @@ SOURCE_ID = "demo_platform_01"
 EVENT_TYPE = "RESTRICTED_ZONE_INTRUSION"
 INCIDENT_COOLDOWN_MS = 8000
 INCIDENT_ARMING_MS = 1500
+SPATIAL_DEDUPE_RADIUS_NORM = 0.08
 TRAIN_CONTEXT_MEMORY_MS = 3000
 TRAIN_CONTEXT_WINDOW = 5
 TRAIN_CONTEXT_MIN_HITS = 2
@@ -288,7 +289,7 @@ class RailGuardEngine:
         )
         self.track_inside: dict[tuple[int, str], bool] = {}
         self.cooldowns: dict[tuple[int, str], int] = {}
-        self.scene_cooldown_until_ms = 0
+        self.recent_incident_points: list[tuple[int, float, float, int]] = []
         self.last_train_seen_ms = -10_000_000
         self.last_train_confidence = 0.0
         self.train_history: list[tuple[int, bool, float]] = []
@@ -301,7 +302,7 @@ class RailGuardEngine:
         self.store.reset_run()
         self.track_inside.clear()
         self.cooldowns.clear()
-        self.scene_cooldown_until_ms = 0
+        self.recent_incident_points = []
         self.last_train_seen_ms = -10_000_000
         self.last_train_confidence = 0.0
         self.train_history = []
@@ -375,7 +376,7 @@ class RailGuardEngine:
                 self.track_inside[key] = inside
                 continue
             cooldown_until = self.cooldowns.get(key, -1)
-            can_create = packet.frame_id >= cooldown_until and packet.timestamp_ms >= self.scene_cooldown_until_ms
+            can_create = packet.frame_id >= cooldown_until and not self._is_duplicate_spatial_incident(packet, track)
             if inside and not was_inside and can_create:
                 event = self._create_intrusion(packet, track, context)
                 self._save_evidence(packet.image, track, event, context.active_zones)
@@ -389,13 +390,34 @@ class RailGuardEngine:
                 }
                 incidents.append(event)
                 self.cooldowns[key] = packet.frame_id + self.mission.cooldown_frames
-                self.scene_cooldown_until_ms = packet.timestamp_ms + INCIDENT_COOLDOWN_MS
+                self._remember_incident_point(packet, track)
                 self.track_inside[key] = inside
             self.track_inside[key] = inside
         for key in list(self.track_inside):
             if key not in visible_person_keys:
                 self.track_inside[key] = False
         return incidents
+
+    def _is_duplicate_spatial_incident(self, packet: FramePacket, track: Track) -> bool:
+        self._expire_incident_points(packet.timestamp_ms)
+        foot_x, foot_y = normalized_foot(track.box, packet.image.shape)
+        for _, prev_x, prev_y, prev_track_id in self.recent_incident_points:
+            if prev_track_id == track.track_id:
+                return True
+            dist = ((foot_x - prev_x) ** 2 + (foot_y - prev_y) ** 2) ** 0.5
+            if dist <= SPATIAL_DEDUPE_RADIUS_NORM:
+                return True
+        return False
+
+    def _remember_incident_point(self, packet: FramePacket, track: Track) -> None:
+        foot_x, foot_y = normalized_foot(track.box, packet.image.shape)
+        self.recent_incident_points.append((packet.timestamp_ms, foot_x, foot_y, track.track_id))
+        self._expire_incident_points(packet.timestamp_ms)
+
+    def _expire_incident_points(self, timestamp_ms: int) -> None:
+        self.recent_incident_points = [
+            item for item in self.recent_incident_points if timestamp_ms - item[0] <= INCIDENT_COOLDOWN_MS
+        ]
 
     def _zones_for_frame(self, frame: np.ndarray, tracks: list[Track]) -> list[Zone]:
         train_tracks = [t for t in tracks if t.visible and t.label == "train"]
@@ -586,50 +608,64 @@ class RailGuardEngine:
         unique_people = len({e["track_id"] for e in incidents if e.get("track_id") is not None})
         name = f"railguard_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
         path = self.store.reports_dir / name
-        rows = "\n".join(
-            incident_report_row(e)
-            for e in incidents
-        )
-        action_rows = "\n".join(
-            f"<li>{a['event_id']} - {a['action_type']} - {a['status']} - {a['detail']}</li>" for a in actions
-        )
-        task_rows = "\n".join(
-            f"<tr><td>{t['task_id']}</td><td>{t['status']}</td><td>{t['title']}</td><td>{t['created_at']}</td></tr>"
-            for t in tasks
-        )
+        latest = incidents[-1] if incidents else None
+        latest_values = latest.get("condition_values", {}) if latest else {}
+        latest_evidence = latest.get("evidence", {}) if latest else {}
+        latest_subject = f"P-{int(latest['track_id']):02d}" if latest and latest.get("track_id") is not None else "P-?"
+        latest_severity = latest["severity"] if latest else "NONE"
+        latest_status = latest["status"] if latest else "NO INCIDENT"
+        latest_id = latest["event_id"] if latest else "NO-INCIDENT"
+        latest_time = format_ms(int(latest["timestamp_ms"])) if latest else "00:00.0"
+        latest_zone = latest["zone_id"] if latest else "platform_edge"
+        train_state = "detected" if latest_values.get("train_visible") else "not detected"
+        evidence_frame = latest_evidence.get("annotated_frame", "")
+        evidence_img = f"<img src='{evidence_frame}' alt='Evidence frame'>" if evidence_frame else "<div class='empty-evidence'>Evidence captured during run</div>"
+        incident_rows = "\n".join(incident_report_row(e) for e in incidents)
+        action_items = "\n".join(f"<li>{a['action_type']} - {a['status']} - {a['detail']}</li>" for a in actions[:8])
+        task_items = "\n".join(f"<li>{t['task_id']} - {t['status']} - {t['title']}</li>" for t in tasks[:6])
         html = f"""<!doctype html>
 <html><head><meta charset='utf-8'><title>CORTEX RailGuard Report</title>
 <style>
-body{{font-family:Arial,sans-serif;margin:32px;background:#f6f8fb;color:#101828;line-height:1.45}}
-.card{{background:white;border:1px solid #d9e1ee;border-radius:18px;padding:18px;margin:16px 0;box-shadow:0 12px 34px rgba(16,24,40,.06)}}
-.summary{{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin:18px 0}}
-.metric{{background:#fff;border:1px solid #d9e1ee;border-radius:16px;padding:14px}}
-.metric span{{display:block;color:#667085;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em}}
-.metric strong{{display:block;margin-top:8px;font-size:24px;color:#101828}}
-table{{border-collapse:collapse;width:100%;background:white}}td,th{{border:1px solid #ccd3df;padding:8px;vertical-align:top}}th{{background:#edf3fb;text-align:left}}img{{max-width:240px;border-radius:10px;border:1px solid #ccd3df}}.critical{{color:#b42318;font-weight:800}}.high{{color:#b54708;font-weight:800}}</style></head>
+*{{box-sizing:border-box}}body{{margin:0;background:#050718;color:#f3f6ff;font-family:Inter,Arial,sans-serif;line-height:1.45}}body:before{{content:"";display:block;height:8px;background:#04d9ff}}.page{{min-height:100vh;padding:30px 56px 38px}}.eyebrow{{color:#02d9ff;font-size:12px;font-weight:900;letter-spacing:.08em;text-transform:uppercase}}h1{{font-size:38px;line-height:1.08;margin:12px 0 18px;letter-spacing:-.03em}}.layout{{display:grid;grid-template-columns:.95fr 1.1fr;gap:54px;align-items:start}}.workflow{{display:grid;gap:34px;margin-top:8px}}.step{{display:grid;grid-template-columns:58px 150px 1fr;gap:4px;align-items:center}}.dot{{width:34px;height:34px;border-radius:999px;background:#04d9ff}}.step:first-child .dot{{background:#ff0b45}}.step strong{{font-size:18px}}.step span{{color:#aeb8d5;font-size:13px;max-width:310px}}.callout{{margin-top:42px;color:#ffd229;font-size:22px;font-weight:950;max-width:620px;line-height:1.22}}.report-card{{background:#f3f8ff;color:#11162b;border:2px solid #b8c7e7;border-radius:14px;padding:28px;box-shadow:0 24px 70px rgba(0,0,0,.32)}}.report-card h2{{font-size:25px;margin:0 0 26px;letter-spacing:-.02em}}.tile-grid{{display:grid;grid-template-columns:1fr 1fr;gap:24px 28px}}.tile{{background:#e7f0ff;border:1px solid #bad0f5;border-radius:8px;padding:11px 13px}}.tile b{{display:block;color:#596987;font-size:10px;text-transform:uppercase;letter-spacing:.04em}}.tile strong{{display:block;margin-top:4px;font-size:13px}}.tile.severity{{background:#ffe4e4;border-color:#ff9c9c}}.tile.severity strong{{color:#d4112f}}.evidence{{margin-top:34px}}.evidence h3{{font-size:16px;margin:0 0 14px}}.evidence-line{{background:#e7f0ff;border:1px solid #bdd2f7;padding:16px 13px;font-size:12px}}.evidence-body{{display:grid;grid-template-columns:220px 1fr;gap:22px;margin-top:18px;align-items:start}}.evidence-body img{{width:220px;height:112px;object-fit:cover;border:1px solid #c7d5ee}}.empty-evidence{{width:220px;height:112px;display:grid;place-items:center;background:#dfe9fa;color:#607092;border:1px solid #c7d5ee}}.evidence-copy strong{{display:block;font-size:13px;margin:8px 0 22px}}.evidence-copy p{{color:#62708f;font-size:12px;max-width:360px}}.summary{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:20px}}.metric{{background:#101832;color:#fff;border:1px solid #263254;border-radius:10px;padding:12px}}.metric span{{display:block;color:#9ba8c8;font-size:10px;text-transform:uppercase}}.metric strong{{font-size:22px}}.details{{margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:18px}}.details h3{{margin:0 0 8px;color:#11162b}}.details ul{{margin:0;padding-left:18px;color:#42506f;font-size:12px}}table{{width:100%;border-collapse:collapse;margin-top:20px;background:#fff;color:#11162b}}th,td{{border:1px solid #c8d6ef;padding:8px;font-size:12px;text-align:left}}th{{background:#e7f0ff}}.critical{{color:#d4112f;font-weight:900}}.high{{color:#b54708;font-weight:900}}.footer{{margin-top:28px;color:#aeb8d5;font-size:11px}}@media(max-width:900px){{.page{{padding:24px}}.layout{{grid-template-columns:1fr}}.step{{grid-template-columns:48px 130px 1fr}}}}</style></head>
 <body>
-<h1>CORTEX RailGuard Incident Report</h1>
-<div class="card">
-<p><strong>Mission name:</strong> Platform-edge intrusion monitoring</p>
-<p><strong>Monitoring policy:</strong> Create an incident when a tracked person's foot-point enters the platform-edge restricted zone. Escalate the incident from HIGH to CRITICAL when train context is active. Preserve evidence, alert the operator and create a security-response task.</p>
-<p><strong>Video/source:</strong> {SOURCE_ID}</p>
-<p><strong>Run started:</strong> {self.run_started_at}</p>
+<main class="page">
+<div class="eyebrow">Operator Workflow</div>
+<h1>From live alert to audit-ready evidence report</h1>
+<section class="layout">
+<div>
+<div class="workflow">
+<div class="step"><div class="dot"></div><strong>Alert</strong><span>Visible incident created at the moment of platform-edge entry</span></div>
+<div class="step"><div class="dot"></div><strong>Task</strong><span>Security response task generated with target and priority</span></div>
+<div class="step"><div class="dot"></div><strong>Query</strong><span>Operator asks what happened and receives an evidence-backed answer</span></div>
+<div class="step"><div class="dot"></div><strong>Acknowledge</strong><span>Status changes from OPEN to ACKNOWLEDGED</span></div>
+<div class="step"><div class="dot"></div><strong>Report</strong><span>HTML report preserves proof for review, audit and handoff</span></div>
+</div>
+<div class="callout">This final report is what makes the demo feel like an operational product, not just a model demo.</div>
+</div>
+<article class="report-card">
+<h2>CORTEX RailGuard Incident Report</h2>
+<div class="tile-grid">
+<div class="tile"><b>Mission</b><strong>Platform-edge intrusion</strong></div>
+<div class="tile"><b>Incident</b><strong>{latest_id}</strong></div>
+<div class="tile severity"><b>Severity</b><strong>{latest_severity}</strong></div>
+<div class="tile"><b>Status</b><strong>{latest_status}</strong></div>
+</div>
+<div class="evidence">
+<h3>Incident evidence</h3>
+<div class="evidence-line">{latest_time} &nbsp; {latest_subject} &nbsp; {latest_zone} &nbsp; train context: {train_state} &nbsp; task: {'created' if tasks else 'pending'}</div>
+<div class="evidence-body">{evidence_img}<div class="evidence-copy"><strong>Evidence frame + crop saved locally</strong><p>Report preserves mission, timestamp, object ID, severity, evidence and action log for review.</p></div></div>
 </div>
 <div class="summary">
-<div class="metric"><span>Monitoring duration</span><strong>{format_ms(max_ms)}</strong></div>
-<div class="metric"><span>Unique people tracked</span><strong>{unique_people}</strong></div>
-<div class="metric"><span>Platform intrusions</span><strong>{len(incidents)}</strong></div>
-<div class="metric"><span>Critical incidents</span><strong>{counts.get("CRITICAL", 0)}</strong></div>
-<div class="metric"><span>High incidents</span><strong>{counts.get("HIGH", 0)}</strong></div>
-<div class="metric"><span>Response tasks</span><strong>{len(tasks)}</strong></div>
+<div class="metric"><span>Duration</span><strong>{format_ms(max_ms)}</strong></div>
+<div class="metric"><span>Intrusions</span><strong>{len(incidents)}</strong></div>
+<div class="metric"><span>Critical</span><strong>{counts.get("CRITICAL", 0)}</strong></div>
 </div>
-<h2>Incident Evidence</h2>
-<table><thead><tr><th>Incident</th><th>When</th><th>Subject</th><th>Zone</th><th>Train Context</th><th>Severity</th><th>Status</th><th>Evidence</th></tr></thead><tbody>{rows}</tbody></table>
-<h2>Response Tasks</h2>
-<table><thead><tr><th>Task</th><th>Status</th><th>Details</th><th>Created</th></tr></thead><tbody>{task_rows}</tbody></table>
-<h2>Actions</h2><ul>{action_rows}</ul>
-<h2>Operator Acknowledgment</h2><p>Incidents marked ACKNOWLEDGED were reviewed by the operator; linked response tasks are marked DISPATCHED.</p>
-<h2>Limitations</h2><p>Hackathon MVP; detector is pretrained COCO YOLOv8n, local demo actions only, not connected to railway control systems.</p>
+<div class="details"><div><h3>Tasks</h3><ul>{task_items or '<li>No task created</li>'}</ul></div><div><h3>Actions</h3><ul>{action_items or '<li>No action logged</li>'}</ul></div></div>
+<table><thead><tr><th>Incident</th><th>When</th><th>Subject</th><th>Zone</th><th>Train Context</th><th>Severity</th><th>Status</th><th>Evidence</th></tr></thead><tbody>{incident_rows}</tbody></table>
+</article>
+</section>
+<div class="footer">CORTEX RailGuard - Far Away 2026 - Railways Theme. MVP limitation: local demo actions only, not connected to railway control systems.</div>
+</main>
 </body></html>"""
         path.write_text(html, encoding="utf-8")
         return f"/static/railguard_reports/{name}"
@@ -652,6 +688,12 @@ def format_ms(timestamp_ms: int) -> str:
     minutes = int(seconds // 60)
     rem = seconds - minutes * 60
     return f"{minutes:02d}:{rem:04.1f}"
+
+
+def normalized_foot(box: tuple[int, int, int, int], frame_shape: tuple[int, int, int]) -> tuple[float, float]:
+    h, w = frame_shape[:2]
+    x1, _, x2, y2 = box
+    return ((x1 + x2) * 0.5 / max(1, w), y2 / max(1, h))
 
 
 def incident_report_row(event: dict[str, Any]) -> str:

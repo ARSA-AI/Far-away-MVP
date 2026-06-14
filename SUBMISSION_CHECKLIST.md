@@ -43,7 +43,8 @@ demo_assets/Demo.mp4
 The packaged demo must produce:
 
 - no frame-0 incident
-- one to three platform-intrusion incidents
+- bounded platform-intrusion incidents without duplicate spam
+- separate evidence package for each distinct person/entry
 - visual train context for CRITICAL severity
 - evidence frame and object crop
 - response task
