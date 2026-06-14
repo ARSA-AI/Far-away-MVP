@@ -21,6 +21,8 @@ SOURCE_ID = "demo_platform_01"
 EVENT_TYPE = "RESTRICTED_ZONE_INTRUSION"
 INCIDENT_COOLDOWN_MS = 8000
 INCIDENT_ARMING_MS = 1500
+EVIDENCE_CONFIRM_MS = 1200
+EVIDENCE_CONFIRM_MIN_DELAY_MS = 350
 SPATIAL_DEDUPE_RADIUS_NORM = 0.08
 TRAIN_CONTEXT_MEMORY_MS = 3000
 TRAIN_CONTEXT_WINDOW = 5
@@ -290,6 +292,7 @@ class RailGuardEngine:
         self.track_inside: dict[tuple[int, str], bool] = {}
         self.cooldowns: dict[tuple[int, str], int] = {}
         self.recent_incident_points: list[tuple[int, float, float, int]] = []
+        self.pending_evidence: dict[str, dict[str, Any]] = {}
         self.last_train_seen_ms = -10_000_000
         self.last_train_confidence = 0.0
         self.last_train_zone: Zone | None = None
@@ -305,6 +308,7 @@ class RailGuardEngine:
         self.track_inside.clear()
         self.cooldowns.clear()
         self.recent_incident_points = []
+        self.pending_evidence = {}
         self.last_train_seen_ms = -10_000_000
         self.last_train_confidence = 0.0
         self.last_train_zone = None
@@ -383,9 +387,10 @@ class RailGuardEngine:
             can_create = packet.frame_id >= cooldown_until and not self._is_duplicate_spatial_incident(packet, track)
             if inside and not was_inside and can_create:
                 event = self._create_intrusion(packet, track, context)
-                self._save_evidence(packet.image, track, event, context.active_zones)
+                self._save_evidence(packet.image, track, event, context.active_zones, "ENTRY")
                 self.store.save_incident(event)
                 self._execute_actions(event)
+                self._queue_evidence_confirmation(packet, track, event)
                 self.latest_alert = {
                     "event_id": event.event_id,
                     "severity": event.severity,
@@ -400,7 +405,74 @@ class RailGuardEngine:
         for key in list(self.track_inside):
             if key not in visible_person_keys:
                 self.track_inside[key] = False
+        self._update_pending_evidence(packet, tracks, context)
         return incidents
+
+    def _queue_evidence_confirmation(self, packet: FramePacket, track: Track, event: IncidentEvent) -> None:
+        foot_x, foot_y = normalized_foot(track.box, packet.image.shape)
+        self.pending_evidence[event.event_id] = {
+            "event": event,
+            "track_id": track.track_id,
+            "foot": (foot_x, foot_y),
+            "start_ms": packet.timestamp_ms,
+            "until_ms": packet.timestamp_ms + EVIDENCE_CONFIRM_MS,
+            "best_score": evidence_score(track, packet.image.shape, 0),
+            "updated": False,
+        }
+
+    def _update_pending_evidence(self, packet: FramePacket, tracks: list[Track], context: SceneContext) -> None:
+        if not self.pending_evidence:
+            return
+        for event_id, pending in list(self.pending_evidence.items()):
+            event = pending["event"]
+            if packet.timestamp_ms > pending["until_ms"]:
+                self.pending_evidence.pop(event_id, None)
+                continue
+            track = self._match_pending_track(packet, tracks, context, pending)
+            if track is None:
+                continue
+            inside = context.zone_membership.get(track.track_id, {}).get(event.zone_id, False)
+            if not inside:
+                continue
+            elapsed = packet.timestamp_ms - pending["start_ms"]
+            score = evidence_score(track, packet.image.shape, elapsed)
+            if elapsed >= EVIDENCE_CONFIRM_MIN_DELAY_MS and (not pending["updated"] or score >= pending["best_score"] - 0.10):
+                self._save_evidence(packet.image, track, event, context.active_zones, "CONFIRMED_INSIDE")
+                self.store.save_incident(event)
+                pending["best_score"] = score
+                pending["updated"] = True
+            if elapsed >= EVIDENCE_CONFIRM_MS:
+                self.pending_evidence.pop(event_id, None)
+
+    def _match_pending_track(
+        self,
+        packet: FramePacket,
+        tracks: list[Track],
+        context: SceneContext,
+        pending: dict[str, Any],
+    ) -> Track | None:
+        candidates = [
+            track
+            for track in tracks
+            if track.visible
+            and track.label == "person"
+            and context.zone_membership.get(track.track_id, {}).get(self.mission.primary_zone, False)
+        ]
+        for track in candidates:
+            if track.track_id == pending["track_id"]:
+                return track
+        if not candidates:
+            return None
+        target_x, target_y = pending["foot"]
+        best_track = None
+        best_dist = 999.0
+        for track in candidates:
+            foot_x, foot_y = normalized_foot(track.box, packet.image.shape)
+            dist = ((foot_x - target_x) ** 2 + (foot_y - target_y) ** 2) ** 0.5
+            if dist < best_dist:
+                best_dist = dist
+                best_track = track
+        return best_track if best_dist <= 0.22 else None
 
     def _is_duplicate_spatial_incident(self, packet: FramePacket, track: Track) -> bool:
         self._expire_incident_points(packet.timestamp_ms)
@@ -489,7 +561,7 @@ class RailGuardEngine:
     def _person_count_in_zone(self, context: SceneContext) -> int:
         return sum(1 for zones in context.zone_membership.values() if zones.get(self.mission.primary_zone))
 
-    def _save_evidence(self, frame: np.ndarray, track: Track, event: IncidentEvent, zones: list[Zone]) -> None:
+    def _save_evidence(self, frame: np.ndarray, track: Track, event: IncidentEvent, zones: list[Zone], capture_phase: str) -> None:
         try:
             annotated = draw_railguard_overlay(frame, [track], zones, event)
             crop = crop_box(frame, track.box)
@@ -503,6 +575,7 @@ class RailGuardEngine:
                 "annotated_frame": f"/static/railguard_evidence/{full_name}",
                 "object_crop": f"/static/railguard_evidence/{crop_name}",
                 "evidence_status": "OK",
+                "capture_phase": capture_phase,
             }
         except Exception as exc:  # pragma: no cover - defensive for demo storage failures
             event.evidence = {"annotated_frame": "", "object_crop": "", "evidence_status": f"FAILED: {exc}"}
@@ -706,6 +779,14 @@ def normalized_foot(box: tuple[int, int, int, int], frame_shape: tuple[int, int,
     return ((x1 + x2) * 0.5 / max(1, w), y2 / max(1, h))
 
 
+def evidence_score(track: Track, frame_shape: tuple[int, int, int], elapsed_ms: int) -> float:
+    h, w = frame_shape[:2]
+    x1, y1, x2, y2 = track.box
+    area = max(1, x2 - x1) * max(1, y2 - y1) / max(1, h * w)
+    confirmation_bonus = 0.35 if elapsed_ms >= EVIDENCE_CONFIRM_MIN_DELAY_MS else 0.0
+    return area + confirmation_bonus + min(0.2, elapsed_ms / max(1, EVIDENCE_CONFIRM_MS) * 0.2)
+
+
 def incident_report_row(event: dict[str, Any]) -> str:
     values = event.get("condition_values", {})
     evidence = event.get("evidence", {})
@@ -747,10 +828,22 @@ def latest_incident_summary(event: dict[str, Any] | None) -> dict[str, Any] | No
 def crop_box(frame: np.ndarray, box: tuple[int, int, int, int]) -> np.ndarray:
     h, w = frame.shape[:2]
     x1, y1, x2, y2 = box
-    pad = 20
-    x1, y1 = max(0, x1 - pad), max(0, y1 - pad)
-    x2, y2 = min(w, x2 + pad), min(h, y2 + pad)
-    crop = frame[y1:y2, x1:x2]
+    bw = max(1, x2 - x1)
+    bh = max(1, y2 - y1)
+    cx = (x1 + x2) // 2
+    foot_y = y2
+    crop_w = max(int(bw * 2.8), 180)
+    crop_h = max(int(bh * 2.4), 220)
+    left = max(0, cx - crop_w // 2)
+    right = min(w, cx + crop_w // 2)
+    bottom = min(h, foot_y + int(crop_h * 0.22))
+    top = max(0, bottom - crop_h)
+    if right - left < min(crop_w, w):
+        if left == 0:
+            right = min(w, left + crop_w)
+        elif right == w:
+            left = max(0, right - crop_w)
+    crop = frame[top:bottom, left:right]
     if crop.size == 0:
         return np.zeros((120, 160, 3), dtype=np.uint8)
     return crop
