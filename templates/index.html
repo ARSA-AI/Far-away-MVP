@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CORTEX RailGuard | Railway Safety Agent</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">Far Away 2026 · Railway Theme</p>
+          <h1>RailGuard</h1>
+          <h2>CORTEX Platform-Intrusion Safety Agent</h2>
+          <p class="summary">
+            Existing CCTV records incidents. RailGuard watches, remembers, reasons and acts before an incident becomes a disaster.
+          </p>
+        </div>
+        <div class="telemetry-stack">
+          <div class="badge">
+            <span id="fps">0.00 FPS</span>
+            <small>edge runtime</small>
+          </div>
+          <div class="status-chip" id="status-pill">Ready</div>
+        </div>
+      </section>
+
+      <section class="railguard-layout">
+        <aside class="mission-panel panel">
+          <div class="panel-title">Mission Control</div>
+          <div class="mission-name">Platform-edge intrusion</div>
+          <p class="muted">Monitor the platform edge. Create an incident when a tracked person enters the restricted zone. Escalate to CRITICAL when train context is visible.</p>
+          <div class="compiled-rule" id="compiled-rule">Rule waiting...</div>
+          <form action="/start_demo" method="post" onsubmit="setBusy('Starting known RailGuard demo...')">
+            <button type="submit">Run Known Demo</button>
+          </form>
+          <form action="/upload" method="post" enctype="multipart/form-data" class="stack-form" onsubmit="setBusy('Uploading and starting RailGuard...')">
+            <label class="file-drop">
+              <input type="file" name="video" accept="video/*" required>
+              <span>Choose platform video</span>
+              <small>MP4/MOV demo source</small>
+            </label>
+            <button type="submit">Start Monitoring</button>
+          </form>
+          <div class="button-row">
+            <form action="/start_webcam" method="post" onsubmit="setBusy('Starting webcam...')">
+              <button type="submit" class="secondary">Webcam</button>
+            </form>
+            <form action="/stop" method="post" onsubmit="setBusy('Stopping...')">
+              <button type="submit" class="ghost">Stop</button>
+            </form>
+            <form action="/clear_memory" method="post" onsubmit="setBusy('Resetting RailGuard run...')">
+              <button type="submit" class="ghost">Reset Run</button>
+            </form>
+          </div>
+          <div class="health-grid">
+            <div><span>Model</span><strong>YOLOv8n CPU</strong></div>
+            <div><span>Tracker</span><strong>IoU/Centroid</strong></div>
+            <div><span>Evidence</span><strong>Local</strong></div>
+          </div>
+        </aside>
+
+        <section class="ops-panel">
+          <article class="panel main-panel">
+            <div class="panel-title">Live Railway View · Zone Overlay · Mission Tracks</div>
+            <div class="alert-banner" id="alert-banner">No active incident</div>
+            <div class="intelligence-strip">
+              <div><span>MONITORING</span><strong id="intel-monitoring">READY</strong></div>
+              <div><span>RUNTIME</span><strong id="intel-runtime">CPU MODE</strong></div>
+              <div><span>FPS</span><strong id="intel-fps">0.00</strong></div>
+              <div><span>PEOPLE</span><strong id="intel-people">0 TRACKED</strong></div>
+              <div><span>TRAIN</span><strong id="intel-train">NOT DETECTED</strong></div>
+              <div><span>PLATFORM EDGE</span><strong id="intel-zone">SECURE</strong></div>
+              <div><span>RISK</span><strong id="intel-risk">CLEAR</strong></div>
+            </div>
+            <img src="/video_feed" alt="railguard video stream">
+          </article>
+        </section>
+
+        <aside class="timeline-panel panel">
+          <div class="panel-title">Incident Timeline</div>
+          <div id="incident-list" class="incident-list">
+            <div class="empty-state">No incident yet. Start monitoring a platform clip.</div>
+          </div>
+        </aside>
+      </section>
+
+      <section class="bottom rail-bottom">
+        <article class="panel">
+          <div class="panel-title">Event Memory Query</div>
+          <form action="/ask" method="post" class="inline-form" onsubmit="setBusy('Querying incident memory...')">
+            <input type="text" name="question" placeholder="Ask: when did intrusion occur, was train visible, how many people entered?">
+            <button type="submit">Query</button>
+          </form>
+          <div class="query-presets">
+            <form action="/ask" method="post" onsubmit="setBusy('Querying incidents...')">
+              <input type="hidden" name="question" value="what incidents occurred">
+              <button type="submit" class="ghost">What incidents?</button>
+            </form>
+            <form action="/ask" method="post" onsubmit="setBusy('Querying time...')">
+              <input type="hidden" name="question" value="when did the intrusion occur">
+              <button type="submit" class="ghost">When?</button>
+            </form>
+            <form action="/ask" method="post" onsubmit="setBusy('Querying train context...')">
+              <input type="hidden" name="question" value="was train visible during the incident">
+              <button type="submit" class="ghost">Train visible?</button>
+            </form>
+            <form action="/ask" method="post" onsubmit="setBusy('Querying count...')">
+              <input type="hidden" name="question" value="how many people entered the restricted zone">
+              <button type="submit" class="ghost">Count entries</button>
+            </form>
+            <form action="/ask" method="post" onsubmit="setBusy('Querying critical incident...')">
+              <input type="hidden" name="question" value="show the most critical incident">
+              <button type="submit" class="ghost">Most critical</button>
+            </form>
+          </div>
+          <div class="answer-box" id="answer">Start a RailGuard run, then query incident memory.</div>
+          <form action="/report" method="post" class="report-form" onsubmit="setBusy('Generating report...')">
+            <button type="submit" class="secondary">Generate Incident Report</button>
+            <a id="report-link" href="#" target="_blank">Generate after incident</a>
+          </form>
+        </article>
+        <article class="panel">
+          <div class="panel-title">Response Tasks + Action Log</div>
+          <div class="task-grid">
+            <div>
+              <h3>Tasks</h3>
+              <div id="task-list" class="compact-list"></div>
+            </div>
+            <div>
+              <h3>Actions</h3>
+              <div id="action-list" class="compact-list"></div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="controls legacy-tools">
+        <details>
+          <summary>Legacy visual-memory tools</summary>
+        <div class="control-card">
+          <div class="control-heading">
+            <span>01</span>
+            <strong>Image Memory</strong>
+          </div>
+          <form action="/upload_images" method="post" enctype="multipart/form-data" class="stack-form" onsubmit="setBusy('Processing image memory...')">
+            <label class="file-drop">
+              <input type="file" name="images" accept="image/*" multiple required>
+              <span>Choose image(s)</span>
+              <small>Single or batch memory</small>
+            </label>
+            <button type="submit">Process Images</button>
+          </form>
+        </div>
+
+        <div class="control-card">
+          <div class="control-heading">
+            <span>02</span>
+            <strong>Video / Live</strong>
+          </div>
+          <form action="/upload" method="post" enctype="multipart/form-data" class="stack-form" onsubmit="setBusy('Uploading and starting video...')">
+            <label class="file-drop">
+              <input type="file" name="video" accept="video/*" required>
+              <span>Choose video</span>
+              <small>Demo clip or camera recording</small>
+            </label>
+            <button type="submit">Run Video</button>
+          </form>
+          <div class="button-row">
+          <form action="/start_webcam" method="post" onsubmit="setBusy('Starting webcam...')">
+              <button type="submit" class="secondary">Webcam</button>
+          </form>
+          <form action="/stop" method="post" onsubmit="setBusy('Stopping...')">
+              <button type="submit" class="ghost">Stop</button>
+          </form>
+          <form action="/clear_memory" method="post" onsubmit="setBusy('Clearing memory...')">
+              <button type="submit" class="ghost">Clear</button>
+          </form>
+          </div>
+        </div>
+
+        <div class="control-card command-card">
+          <div class="control-heading">
+            <span>03</span>
+            <strong>Locate Only</strong>
+          </div>
+          <form action="/set_query" method="post" class="inline-form" onsubmit="setBusy('Updating locate query...')">
+            <input type="text" name="query" placeholder="Locate only: person, car, bottle, bus...">
+            <button type="submit">Locate</button>
+          </form>
+        </div>
+
+        <div class="control-card command-card">
+          <div class="control-heading">
+            <span>04</span>
+            <strong>Ask Memory</strong>
+          </div>
+          <form action="/ask" method="post" class="inline-form" onsubmit="setBusy('Answering from visual memory...')">
+            <input type="text" name="question" placeholder="Ask memory: what do you see, where is the car, how many persons?">
+            <button type="submit">Ask</button>
+          </form>
+        </div>
+        </details>
+      </section>
+    </main>
+    <script>
+      async function refreshState() {
+        const res = await fetch('/state');
+        const data = await res.json();
+        document.getElementById('fps').textContent = `${data.fps} FPS`;
+        document.getElementById('compiled-rule').textContent = data.compiled_rule || 'Rule waiting...';
+        document.getElementById('answer').textContent = data.answer || 'No answer yet.';
+        renderIntelligence(data.system_status || {}, data.running);
+        renderIncidents(data.incidents || []);
+        renderCompactList('action-list', data.actions || [], row => `${row.action_type} · ${row.status}<small>${row.detail || ''}</small>`);
+        renderCompactList('task-list', data.tasks || [], row => `${row.task_id} · ${row.status}<small>${row.title || ''}</small>`);
+        const alert = data.alert;
+        const banner = document.getElementById('alert-banner');
+        const latest = (data.system_status || {}).latest_incident;
+        if (latest) {
+          const trainReason = latest.train_detected_at_incident
+            ? `while train context was detected (${Number(latest.train_confidence_at_incident || 0).toFixed(2)})`
+            : 'without train context';
+          banner.textContent = `LATEST INCIDENT - ${latest.severity}: ${latest.subject} entered platform edge ${trainReason}`;
+        } else {
+          banner.textContent = alert ? alert.message : 'No active incident';
+        }
+        banner.className = alert ? `alert-banner ${String(alert.severity || '').toLowerCase()}` : 'alert-banner';
+        const reportLink = document.getElementById('report-link');
+        if (data.report_url) {
+          reportLink.href = data.report_url;
+          reportLink.textContent = 'Open latest report';
+        }
+        const status = data.error ? `Error: ${data.error}` : data.running ? `Running · frame ${data.frame_idx}` : 'Ready';
+        document.getElementById('status-pill').textContent = status;
+      }
+      function renderIntelligence(status, running) {
+        const monitoring = running ? 'ACTIVE' : 'READY';
+        document.getElementById('intel-monitoring').textContent = monitoring;
+        document.getElementById('intel-runtime').textContent = status.runtime || 'CPU MODE';
+        document.getElementById('intel-fps').textContent = `${status.fps ?? dataSafeFps()} FPS`;
+        document.getElementById('intel-people').textContent = `${status.people_tracked || 0} TRACKED`;
+        const trainText = status.train_context === 'DETECTED'
+          ? `DETECTED · VISUAL · ${Number(status.train_confidence || 0).toFixed(2)}`
+          : 'NOT DETECTED';
+        document.getElementById('intel-train').textContent = trainText;
+        document.getElementById('intel-zone').textContent = status.zone_state || 'SECURE';
+        const risk = document.getElementById('intel-risk');
+        risk.textContent = status.risk || 'CLEAR';
+        risk.dataset.risk = String(status.risk || 'CLEAR').toLowerCase();
+      }
+      function dataSafeFps() {
+        return document.getElementById('fps').textContent.replace(' FPS', '') || '0.00';
+      }
+      function formatMs(ms) {
+        const total = Math.max(0, Number(ms || 0) / 1000);
+        const minutes = Math.floor(total / 60);
+        const seconds = total - minutes * 60;
+        return `${String(minutes).padStart(2, '0')}:${seconds.toFixed(1).padStart(4, '0')}`;
+      }
+      function renderIncidents(items) {
+        const list = document.getElementById('incident-list');
+        list.innerHTML = '';
+        if (!items.length) {
+          list.innerHTML = '<div class="empty-state">No incident yet. Start monitoring a platform clip.</div>';
+          return;
+        }
+        for (const item of items) {
+          const card = document.createElement('div');
+          const sev = String(item.severity || '').toLowerCase();
+          const train = item.condition_values && item.condition_values.train_visible;
+          const trainConf = item.condition_values ? Number(item.condition_values.train_confidence || 0).toFixed(2) : '0.00';
+          const subject = item.track_id !== undefined && item.track_id !== null ? `P-${String(item.track_id).padStart(2, '0')}` : 'P-?';
+          const frame = item.evidence && item.evidence.annotated_frame ? item.evidence.annotated_frame : '';
+          const crop = item.evidence && item.evidence.object_crop ? item.evidence.object_crop : '';
+          const img = frame ? `<div class="evidence-stack"><a href="${frame}" target="_blank"><img src="${frame}" alt="full evidence"><small>View frame</small></a>${crop ? `<a href="${crop}" target="_blank"><img src="${crop}" alt="object crop"><small>View crop</small></a>` : ''}</div>` : '';
+          card.className = `incident-card ${sev}`;
+          card.innerHTML = `${img}<div><strong>${item.severity} · ${item.event_id}</strong><span>${subject} entered Platform Edge</span><small>Timestamp ${formatMs(item.timestamp_ms)} · Frame ${item.frame_id}<br>Train context: ${train ? 'DETECTED' : 'NOT DETECTED'} · Confidence ${trainConf}<br>Status: ${item.status}</small><form action="/ack" method="post" onsubmit="setBusy('Acknowledging incident...')"><input type="hidden" name="event_id" value="${item.event_id}"><button type="submit" class="ghost mini">Acknowledge</button></form></div>`;
+          list.appendChild(card);
+        }
+      }
+      function renderCompactList(id, rows, format) {
+        const node = document.getElementById(id);
+        node.innerHTML = '';
+        if (!rows.length) {
+          node.innerHTML = '<div class="empty-state small">Waiting...</div>';
+          return;
+        }
+        for (const row of rows) {
+          const div = document.createElement('div');
+          div.className = 'compact-row';
+          div.innerHTML = format(row);
+          node.appendChild(div);
+        }
+      }
+      function setBusy(text) {
+        document.getElementById('status-pill').textContent = text;
+      }
+      setInterval(refreshState, 1000);
+      refreshState();
+    </script>
+  </body>
+</html>
