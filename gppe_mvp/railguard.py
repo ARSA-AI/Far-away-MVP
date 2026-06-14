@@ -626,44 +626,34 @@ class RailGuardEngine:
         html = f"""<!doctype html>
 <html><head><meta charset='utf-8'><title>CORTEX RailGuard Report</title>
 <style>
-*{{box-sizing:border-box}}body{{margin:0;background:#050718;color:#f3f6ff;font-family:Inter,Arial,sans-serif;line-height:1.45}}body:before{{content:"";display:block;height:8px;background:#04d9ff}}.page{{min-height:100vh;padding:30px 56px 38px}}.eyebrow{{color:#02d9ff;font-size:12px;font-weight:900;letter-spacing:.08em;text-transform:uppercase}}h1{{font-size:38px;line-height:1.08;margin:12px 0 18px;letter-spacing:-.03em}}.layout{{display:grid;grid-template-columns:.95fr 1.1fr;gap:54px;align-items:start}}.workflow{{display:grid;gap:34px;margin-top:8px}}.step{{display:grid;grid-template-columns:58px 150px 1fr;gap:4px;align-items:center}}.dot{{width:34px;height:34px;border-radius:999px;background:#04d9ff}}.step:first-child .dot{{background:#ff0b45}}.step strong{{font-size:18px}}.step span{{color:#aeb8d5;font-size:13px;max-width:310px}}.callout{{margin-top:42px;color:#ffd229;font-size:22px;font-weight:950;max-width:620px;line-height:1.22}}.report-card{{background:#f3f8ff;color:#11162b;border:2px solid #b8c7e7;border-radius:14px;padding:28px;box-shadow:0 24px 70px rgba(0,0,0,.32)}}.report-card h2{{font-size:25px;margin:0 0 26px;letter-spacing:-.02em}}.tile-grid{{display:grid;grid-template-columns:1fr 1fr;gap:24px 28px}}.tile{{background:#e7f0ff;border:1px solid #bad0f5;border-radius:8px;padding:11px 13px}}.tile b{{display:block;color:#596987;font-size:10px;text-transform:uppercase;letter-spacing:.04em}}.tile strong{{display:block;margin-top:4px;font-size:13px}}.tile.severity{{background:#ffe4e4;border-color:#ff9c9c}}.tile.severity strong{{color:#d4112f}}.evidence{{margin-top:34px}}.evidence h3{{font-size:16px;margin:0 0 14px}}.evidence-line{{background:#e7f0ff;border:1px solid #bdd2f7;padding:16px 13px;font-size:12px}}.evidence-body{{display:grid;grid-template-columns:220px 1fr;gap:22px;margin-top:18px;align-items:start}}.evidence-body img{{width:220px;height:112px;object-fit:cover;border:1px solid #c7d5ee}}.empty-evidence{{width:220px;height:112px;display:grid;place-items:center;background:#dfe9fa;color:#607092;border:1px solid #c7d5ee}}.evidence-copy strong{{display:block;font-size:13px;margin:8px 0 22px}}.evidence-copy p{{color:#62708f;font-size:12px;max-width:360px}}.summary{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:20px}}.metric{{background:#101832;color:#fff;border:1px solid #263254;border-radius:10px;padding:12px}}.metric span{{display:block;color:#9ba8c8;font-size:10px;text-transform:uppercase}}.metric strong{{font-size:22px}}.details{{margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:18px}}.details h3{{margin:0 0 8px;color:#11162b}}.details ul{{margin:0;padding-left:18px;color:#42506f;font-size:12px}}table{{width:100%;border-collapse:collapse;margin-top:20px;background:#fff;color:#11162b}}th,td{{border:1px solid #c8d6ef;padding:8px;font-size:12px;text-align:left}}th{{background:#e7f0ff}}.critical{{color:#d4112f;font-weight:900}}.high{{color:#b54708;font-weight:900}}.footer{{margin-top:28px;color:#aeb8d5;font-size:11px}}@media(max-width:900px){{.page{{padding:24px}}.layout{{grid-template-columns:1fr}}.step{{grid-template-columns:48px 130px 1fr}}}}</style></head>
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 10% 0%,rgba(4,217,255,.18),transparent 34rem),linear-gradient(135deg,#040716 0%,#071126 62%,#111827 100%);color:#f3f6ff;font-family:Inter,Arial,sans-serif;line-height:1.45}}body:before{{content:"";display:block;height:8px;background:#04d9ff}}.page{{min-height:100vh;padding:34px 28px 42px}}.report-card{{max-width:1040px;margin:0 auto;background:#f5f9ff;color:#10162c;border:1px solid #c1cdec;border-radius:22px;padding:30px;box-shadow:0 30px 90px rgba(0,0,0,.38)}}.report-top{{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:24px}}.eyebrow{{color:#0f78a8;font-size:11px;font-weight:950;letter-spacing:.18em;text-transform:uppercase}}.report-card h1{{font-size:30px;margin:8px 0 0;letter-spacing:-.035em}}.stamp{{border:1px solid #bed0f2;background:#e6efff;border-radius:999px;padding:9px 14px;color:#33415f;font-size:12px;font-weight:900;white-space:nowrap}}.tile-grid{{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px}}.tile{{background:#e8f1ff;border:1px solid #bfd2f5;border-radius:14px;padding:13px 14px;min-height:74px}}.tile b{{display:block;color:#62708f;font-size:10px;text-transform:uppercase;letter-spacing:.08em}}.tile strong{{display:block;margin-top:7px;font-size:14px}}.tile.severity{{background:#ffe7e7;border-color:#ffabab}}.tile.severity strong{{color:#d4112f}}.summary{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}}.metric{{background:#101832;color:#fff;border:1px solid #263254;border-radius:14px;padding:14px}}.metric span{{display:block;color:#9ba8c8;font-size:10px;text-transform:uppercase;letter-spacing:.08em}}.metric strong{{font-size:24px}}.section{{margin-top:28px}}.section h2{{font-size:17px;margin:0 0 12px}}.evidence-line{{background:#e8f1ff;border:1px solid #bfd2f5;border-radius:12px;padding:13px 14px;font-size:12px;color:#1f2a44}}.evidence-body{{display:grid;grid-template-columns:150px 1fr;gap:18px;margin-top:14px;align-items:start}}.evidence-body img{{width:150px;height:86px;object-fit:cover;border-radius:12px;border:1px solid #c7d5ee;box-shadow:0 10px 24px rgba(16,24,40,.10)}}.empty-evidence{{width:150px;height:86px;display:grid;place-items:center;background:#dfe9fa;color:#607092;border:1px solid #c7d5ee;border-radius:12px;font-size:12px}}.evidence-copy{{background:#fff;border:1px solid #d5e0f4;border-radius:14px;padding:14px;min-height:86px}}.evidence-copy strong{{display:block;font-size:13px;margin-bottom:8px}}.evidence-copy p{{color:#62708f;font-size:12px;margin:0}}.details{{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:22px}}.detail-card{{background:#fff;border:1px solid #d5e0f4;border-radius:16px;padding:15px}}.detail-card h3{{margin:0 0 8px;color:#10162c;font-size:14px}}.detail-card ul{{margin:0;padding-left:18px;color:#42506f;font-size:12px}}table{{width:100%;border-collapse:separate;border-spacing:0;margin-top:14px;background:#fff;color:#11162b;border:1px solid #c8d6ef;border-radius:14px;overflow:hidden}}th,td{{border-bottom:1px solid #dce6f7;padding:9px;font-size:12px;text-align:left;vertical-align:top}}tr:last-child td{{border-bottom:0}}th{{background:#e8f1ff;color:#52617e;font-size:10px;text-transform:uppercase;letter-spacing:.08em}}td img{{width:72px;height:44px;object-fit:cover;border-radius:8px;border:1px solid #c7d5ee}}.critical{{color:#d4112f;font-weight:900}}.high{{color:#b54708;font-weight:900}}.footer{{max-width:1040px;margin:18px auto 0;color:#aeb8d5;font-size:11px}}@media(max-width:900px){{.tile-grid,.summary,.details{{grid-template-columns:1fr}}.evidence-body{{grid-template-columns:1fr}}}}</style></head>
 <body>
 <main class="page">
-<div class="eyebrow">Operator Workflow</div>
-<h1>From live alert to audit-ready evidence report</h1>
-<section class="layout">
-<div>
-<div class="workflow">
-<div class="step"><div class="dot"></div><strong>Alert</strong><span>Visible incident created at the moment of platform-edge entry</span></div>
-<div class="step"><div class="dot"></div><strong>Task</strong><span>Security response task generated with target and priority</span></div>
-<div class="step"><div class="dot"></div><strong>Query</strong><span>Operator asks what happened and receives an evidence-backed answer</span></div>
-<div class="step"><div class="dot"></div><strong>Acknowledge</strong><span>Status changes from OPEN to ACKNOWLEDGED</span></div>
-<div class="step"><div class="dot"></div><strong>Report</strong><span>HTML report preserves proof for review, audit and handoff</span></div>
-</div>
-<div class="callout">This final report is what makes the demo feel like an operational product, not just a model demo.</div>
-</div>
 <article class="report-card">
-<h2>CORTEX RailGuard Incident Report</h2>
+<div class="report-top"><div><div class="eyebrow">CORTEX RailGuard</div>
+<h1>CORTEX RailGuard Incident Report</h1>
+</div><div class="stamp">Audit-ready HTML report</div></div>
 <div class="tile-grid">
 <div class="tile"><b>Mission</b><strong>Platform-edge intrusion</strong></div>
 <div class="tile"><b>Incident</b><strong>{latest_id}</strong></div>
 <div class="tile severity"><b>Severity</b><strong>{latest_severity}</strong></div>
 <div class="tile"><b>Status</b><strong>{latest_status}</strong></div>
 </div>
-<div class="evidence">
-<h3>Incident evidence</h3>
-<div class="evidence-line">{latest_time} &nbsp; {latest_subject} &nbsp; {latest_zone} &nbsp; train context: {train_state} &nbsp; task: {'created' if tasks else 'pending'}</div>
-<div class="evidence-body">{evidence_img}<div class="evidence-copy"><strong>Evidence frame + crop saved locally</strong><p>Report preserves mission, timestamp, object ID, severity, evidence and action log for review.</p></div></div>
-</div>
 <div class="summary">
 <div class="metric"><span>Duration</span><strong>{format_ms(max_ms)}</strong></div>
 <div class="metric"><span>Intrusions</span><strong>{len(incidents)}</strong></div>
 <div class="metric"><span>Critical</span><strong>{counts.get("CRITICAL", 0)}</strong></div>
 </div>
-<div class="details"><div><h3>Tasks</h3><ul>{task_items or '<li>No task created</li>'}</ul></div><div><h3>Actions</h3><ul>{action_items or '<li>No action logged</li>'}</ul></div></div>
+<div class="section">
+<h2>Incident evidence</h2>
+<div class="evidence-line">{latest_time} &nbsp; {latest_subject} &nbsp; {latest_zone} &nbsp; train context: {train_state} &nbsp; task: {'created' if tasks else 'pending'}</div>
+<div class="evidence-body">{evidence_img}<div class="evidence-copy"><strong>Evidence frame + crop saved locally</strong><p>Report preserves mission, timestamp, object ID, severity, evidence and action log for review.</p></div></div>
+</div>
+<div class="details"><div class="detail-card"><h3>Tasks</h3><ul>{task_items or '<li>No task created</li>'}</ul></div><div class="detail-card"><h3>Actions</h3><ul>{action_items or '<li>No action logged</li>'}</ul></div></div>
+<div class="section"><h2>Incident log</h2>
 <table><thead><tr><th>Incident</th><th>When</th><th>Subject</th><th>Zone</th><th>Train Context</th><th>Severity</th><th>Status</th><th>Evidence</th></tr></thead><tbody>{incident_rows}</tbody></table>
+</div>
 </article>
-</section>
 <div class="footer">CORTEX RailGuard - Far Away 2026 - Railways Theme. MVP limitation: local demo actions only, not connected to railway control systems.</div>
 </main>
 </body></html>"""
